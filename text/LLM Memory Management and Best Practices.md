@@ -39,6 +39,7 @@ When you send text to Gemma, the model calculates mathematical representations (
    4. Completion: The model returns the text response to your Go pipeline. [3, 4] 
 
 ------------------------------
+
 ## Part 2: Managing Memory and Best Practices
 Since Go's garbage collector automatically handles your local variables, your main responsibility is preventing LM Studio's context cache from overflowing.
 ## Basic Best Practices
@@ -55,6 +56,7 @@ resp, err := http.Post("http://localhost:1234/v1/chat/completions", "application
   
 
 ------------------------------
+
 ## Part 3: Multi-User Architecture & Isolation
 When handling multiple concurrent user calls, you must isolate their data so User A cannot see User B's context, and their requests do not corrupt the shared model state.
 ## 1. Isolation Strategy
@@ -78,7 +80,7 @@ Here is how your pipeline architecture might look:
    2. Payload Reconstruction: For every single turn a user takes, fetch their history from your DB, format it into an array of messages, and send the full history to LM Studio.
    3. Concurrency Control (Throttling): LM Studio running locally can usually only process 1 or 2 requests simultaneously without steep performance drops. Use a worker pool or a buffered channel in Go to queue user requests:
 
-   ```go
+```go
    // Limit to 2 concurrent LLM processing jobsvar modelSemaphore = make(chan struct{}, 2)
    func HandleUserRequest(w http.ResponseWriter, r *http.Request) {
        modelSemaphore <- struct{}{}        // Acquire slot
@@ -86,7 +88,7 @@ Here is how your pipeline architecture might look:
    
        // Call LM Studio REST API here
    }
-   ```
+```
    
 Described pipeline, running LM Studio on a single GPU or a shared server.
 The maximum number of concurrent users you expect to support [ ? ]
@@ -133,6 +135,7 @@ To ensure multi-user isolation and prevent GPU memory exhaustion (KV Cache overf
 └────────────────────────────────────────────────────────┘
 
 ------------------------------
+
 ## 2. Engineering Task Breakdown## Epic 1: Session Management & Data Persistence
 Goal: Abstract conversation history away from LM Studio to guarantee multi-user data isolation.
 ## Task 1.1: Database Schema & Mapping Configuration
@@ -151,6 +154,7 @@ Goal: Abstract conversation history away from LM Studio to guarantee multi-user 
    > * Use a secure connection pool to Redis or your preferred SQL cluster.
 
 ------------------------------
+
 ## Epic 2: Memory Optimization & Context Window Management
 Goal: Prevent LM Studio hardware crashes by enforcing programmatic limits on the text passed to the local LLM.
 ## Task 2.1: Implement FIFO Sliding-Window Truncation Algorithm
@@ -169,13 +173,14 @@ Goal: Prevent LM Studio hardware crashes by enforcing programmatic limits on the
 * Enforce immediate streaming buffer allocation freeing.
    * Mandate explicit closing of HTTP response components across all client code structures:
 
-   ```go
+```go
    resp, err := httpClient.Do(req)if err != nil { return err }defer resp.Body.Close() // Explicitly release memory allocations back to Go GC
-   ```
+```
    
    * Strict Constraint: Do not invoke runtime.GC() programmatically, as it creates system-wide blocking freezes. Rely on standard scope endings for cleanup.
 
 ------------------------------
+
 ## Epic 3: Multi-User Concurrency & Traffic Isolation
 Goal: Prevent multiple simultaneous user requests from overwhelming the underlying GPU running Gemma 4.
 ## Task 3.1: Build Concurrency Control Semaphore
@@ -192,6 +197,7 @@ Goal: Prevent multiple simultaneous user requests from overwhelming the underlyi
    * Definition of Done: Multiple automated client processes can submit requests at the exact same moment; the app must cleanly queue them and process only up to the maximum capacity without timing out or mixing contexts.
 
 ------------------------------
+
 ## 3. Configuration & Parameter Targets
 Your configuration files or environment files (.env) must explicitly enforce these bounds to keep the JIT-like cache cycles stable:
 
@@ -203,13 +209,16 @@ Your configuration files or environment files (.env) must explicitly enforce the
 | SESSION_TTL_SECONDS | 86400 (24 Hours) | Evicts old history logs from database cache to save server space |
 
 ------------------------------
+
 Go code boilerplate for the FIFO sliding-window function or the concurrency-throttling middleware based on these specific tasks.
 
 
 
 It will take approximately 12 to 24 hours of total development time to implement this architecture into your Go application.
 If you are already familiar with the existing codebase and have a database/caching layer ready, a mid-to-senior Go developer can realistically finish this in 2 to 3 days of focused work.
+
 ------------------------------
+
 ## Implementation Breakdown
 The total time is distributed across five main engineering tasks:
 ## 1. Setup Go HTTP Client & API Payloads (2–4 hours)
@@ -242,6 +251,7 @@ The total time is distributed across five main engineering tasks:
 
 
 ------------------------------
+
 ## How to Speed Up the Process
 You can cut the implementation time down to under 8 hours by taking advantage of pre-built tools:
 
