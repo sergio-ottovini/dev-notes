@@ -26,10 +26,10 @@ LLMs do not have "memory" like a traditional database. Instead, they process tex
 ## 1. What is the KV Cache?
 When you send text to Gemma, the model calculates mathematical representations (embeddings and attention keys/values) for every single token.
 
-* 
+
 * To avoid recalculating these numbers for every new word it generates, LM Studio saves them in a KV Cache.
 * This cache is what makes your subsequent context-aware calls feel fast (like a Just-In-Time or JIT cycle). [2] 
-* 
+  
 
 ## 2. The Allocation Process
 
@@ -43,7 +43,7 @@ When you send text to Gemma, the model calculates mathematical representations (
 Since Go's garbage collector automatically handles your local variables, your main responsibility is preventing LM Studio's context cache from overflowing.
 ## Basic Best Practices
 
-* 
+
 * Do Not Force runtime.GC(): Do not manually call Go's garbage collector. It increases CPU overhead and won't free the remote GPU memory inside LM Studio anyway.
 * Let Go Variables Out of Scope: Ensure your HTTP response bodies are closed properly so Go can reuse the memory:
 
@@ -52,7 +52,7 @@ resp, err := http.Post("http://localhost:1234/v1/chat/completions", "application
 }defer resp.Body.Close() // Crucial for Go memory management
 
 * Use Context Truncation: LLMs cannot hold infinite text. Implement a sliding window or FIFO queue in your Go pipeline. When your conversation history gets too long, drop the oldest user/assistant pairs before sending the new payload to LM Studio.
-* 
+  
 
 ------------------------------
 ## Part 3: Multi-User Architecture & Isolation
@@ -60,10 +60,10 @@ When handling multiple concurrent user calls, you must isolate their data so Use
 ## 1. Isolation Strategy
 LM Studio runs stateless endpoint structures over standard OpenAI-compatible REST APIs. To isolate users: [5] 
 
-* 
+
 * Stateless API Design: Do not rely on LM Studio to remember users. Your Go backend must act as the "Source of Truth" for session memory.
 * Database Session Storage: Store each user's history in an in-memory database like Redis or a standard relational database tied to a SessionID.
-* 
+  
 
 ## 2. Multi-User System Design
 Here is how your pipeline architecture might look:
@@ -77,7 +77,8 @@ Here is how your pipeline architecture might look:
    1. Map Response IDs: Use your Response ID (resp_c7601e...) to map the incoming request to a specific user database record.
    2. Payload Reconstruction: For every single turn a user takes, fetch their history from your DB, format it into an array of messages, and send the full history to LM Studio.
    3. Concurrency Control (Throttling): LM Studio running locally can usually only process 1 or 2 requests simultaneously without steep performance drops. Use a worker pool or a buffered channel in Go to queue user requests:
-   
+
+   ```go
    // Limit to 2 concurrent LLM processing jobsvar modelSemaphore = make(chan struct{}, 2)
    func HandleUserRequest(w http.ResponseWriter, r *http.Request) {
        modelSemaphore <- struct{}{}        // Acquire slot
@@ -85,7 +86,7 @@ Here is how your pipeline architecture might look:
    
        // Call LM Studio REST API here
    }
-   
+   ```
    
 Described pipeline, running LM Studio on a single GPU or a shared server.
 The maximum number of concurrent users you expect to support [ ? ]
@@ -139,7 +140,7 @@ Goal: Abstract conversation history away from LM Studio to guarantee multi-user 
 * Description: Create a schema to store contextual user interactions. Every single chat generation turn must link back to your application's unique Response ID or a broader Session ID.
 * Requirements:
 * Define a data structure storing an array of message objects containing role (system, user, assistant) and content (string text).
-   * Index records by SessionID or ResponseID for $O(1)$ lookups.
+   > * Index records by SessionID or ResponseID for $O(1)$ lookups.
 * Definition of Done (DoD): CRUD operations for adding messages to a user session pass validation without cross-tenant leakage.
 
 ## Task 1.2: Go Context Hydration Layer
@@ -147,7 +148,7 @@ Goal: Abstract conversation history away from LM Studio to guarantee multi-user 
 * Description: Implement a repository method that accepts an incoming Response ID, fetches the historical thread array, and structures it into an OpenAI-compatible payload.
 * Requirements:
 * Do not rely on internal LM Studio memory endpoints (/v1/chat must be treated as completely stateless).
-   * Use a secure connection pool to Redis or your preferred SQL cluster.
+   > * Use a secure connection pool to Redis or your preferred SQL cluster.
 
 ------------------------------
 ## Epic 2: Memory Optimization & Context Window Management
@@ -157,8 +158,8 @@ Goal: Prevent LM Studio hardware crashes by enforcing programmatic limits on the
 * Description: Write a utility function in Go that intercepts the compiled historical payload before it goes to the API and drops the oldest message pairs if limits are reached.
 * Requirements:
 * Accept a configuration variable MAX_CONTEXT_TOKENS (e.g., 2048 or 4096 tokens).
-   * Calculate approximate token size ($4 \text{ characters} \approx 1 \text{ token}$ as a basic fallback, or use a tiktoken-compatible Go library).
-   * If the array exceeds the maximum parameter, pop the oldest user and assistant message pair, preserving the immutable system prompt rules at the top.
+>   * Calculate approximate token size ($4 \text{ characters} \approx 1 \text{ token}$ as a basic fallback, or use a tiktoken-compatible Go library).
+>   * If the array exceeds the maximum parameter, pop the oldest user and assistant message pair, preserving the immutable system prompt rules at the top.
 * Definition of Done: Unit tests verify that payload configurations safely truncate when simulated text spikes past defined boundary targets.
 
 ## Task 2.2: Go App Memory Cleanup Architecture
@@ -167,8 +168,10 @@ Goal: Prevent LM Studio hardware crashes by enforcing programmatic limits on the
 * Requirements:
 * Enforce immediate streaming buffer allocation freeing.
    * Mandate explicit closing of HTTP response components across all client code structures:
-   
+
+   ```go
    resp, err := httpClient.Do(req)if err != nil { return err }defer resp.Body.Close() // Explicitly release memory allocations back to Go GC
+   ```
    
    * Strict Constraint: Do not invoke runtime.GC() programmatically, as it creates system-wide blocking freezes. Rely on standard scope endings for cleanup.
 
@@ -211,50 +214,45 @@ If you are already familiar with the existing codebase and have a database/cachi
 The total time is distributed across five main engineering tasks:
 ## 1. Setup Go HTTP Client & API Payloads (2–4 hours)
 
-* 
+
 * Writing the native Go struct models to match the OpenAI-compatible JSON formats.
 * Ensuring all resp.Body.Close() commands are strictly handled to prevent Go-side memory leaks.
-* 
+
 
 ## 2. Database Integration & Schema (3–6 hours)
 
-* 
 * Setting up a fast storage layer (like Redis or SQLite) to save chat history.
 * Mapping your unique Response ID to specific UserID or SessionID strings.
-* 
+
 
 ## 3. Context Window Truncation Logic (2–4 hours)
 
-* 
 * Coding the FIFO (First-In, First-Out) or "sliding window" algorithm in Go.
 * This function counts tokens or message arrays and safely prunes older history before it hits the LM Studio API threshold. [1] 
-* 
 
 ## 4. Concurrency Isolation & Throttling (2–4 hours)
 
-* 
 * Implementing Go routines and buffered channels (semaphores) to throttle outgoing requests.
 * Ensuring that if User A's request takes 5 seconds, User B's request waits safely in a queue without mixing memory variables.
-* 
 
 ## 5. Testing & Edge Cases (3–6 hours) [2] 
 
-* 
 * Writing unit tests for your context truncation logic.
 * Writing an integration test that simulates 5–10 concurrent user calls hitting your endpoint simultaneously to check for race conditions.
-* 
+
 
 ------------------------------
 ## How to Speed Up the Process
 You can cut the implementation time down to under 8 hours by taking advantage of pre-built tools:
 
-* 
+
 * Skip raw HTTP client building: Use an existing Go SDK, such as the [sashabaranov/go-openai](https://github.com/sashabaranov/go-openai) library. Because LM Studio replicates the OpenAI API specification, you can simply change the BaseURL parameter in this SDK to point to your local LM Studio instance (http://localhost:1234/v1).
 * Use In-Memory Maps for Prototypes: If you are just testing or have a low number of users, skip setting up Redis initially. Use a standard Go map[string][]openai.ChatCompletionMessage protected by a sync.RWMutex to hold chat history in memory safely.
-* 
+
 
 Minimal code boilerplate for the Go concurrency semaphore or show how to integrate the open-source OpenAI library with LM Studio.
 
+```go
 # Simple estimation helper to break down hours for documentationtasks = {
     "Setup Go HTTP client & proper JSON structs": (2, 4),
     "Database integration (Redis/SQLite for history storage)": (3, 6),
@@ -264,7 +262,7 @@ Minimal code boilerplate for the Go concurrency semaphore or show how to integra
 }
 min_hours = sum([t[0] for t in tasks.values()])max_hours = sum([t[1] for t in tasks.values()])
 print(f"Min: {min_hours}, Max: {max_hours}")
-
+```
 
 [1] [https://pub.towardsai.net](https://pub.towardsai.net/context-engineering-4a17018c41cf)
 [2] [https://www.testrail.com](https://www.testrail.com/blog/testrail-gat/)
