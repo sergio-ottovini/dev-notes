@@ -1,6 +1,23 @@
-You do not need to manually force memory cleaning in your Go application, but you must actively manage the LLM context window and session state via the LM Studio API.
-Because you are using Go, application-side memory allocation and garbage collection (GC) are handled automatically. However, Large Language Models (LLMs) like Gemma handle memory through a mechanism called the KV (Key-Value) Cache, which lives on the hardware running LM Studio (typically your GPU/RAM). [1] 
+
+## Objective
+
+Implement a stateless, concurrency-safe, multi-user LLM pipeline utilizing external session management and context-window optimization.
+
+
+### System Components: 
+golang Application (Backend) - Go API Gateway - JSON
+LM Studio - LM Studio REST API.
+Gemma 4 LLM (Local/Private Server)
+
+
+You do not need to manually force memory cleaning in your Go application, but you must actively manage the LLM context window 
+and session state via the LM Studio API.
+Because you are using Go, application-side memory allocation and garbage collection (GC) are handled automatically. 
+However, Large Language Models (LLMs) like Gemma handle memory through a mechanism called the KV (Key-Value) Cache, 
+which lives on the hardware running LM Studio (typically your GPU/RAM). [1] 
+
 ------------------------------
+
 ## Part 1: How LLM Memory Works & Allocation
 LLMs do not have "memory" like a traditional database. Instead, they process text sequentially through a context window.
 
@@ -49,7 +66,7 @@ LM Studio runs stateless endpoint structures over standard OpenAI-compatible RES
 * 
 
 ## 2. Multi-User System Design
-Here is how your pipeline architecture should look:
+Here is how your pipeline architecture might look:
 
 [User 1] ---> [ Go API Gateway ] ---> [ Session Manager ] ---> [ Request Worker Pool ] ---> [ LM Studio API ]
 [User 2] ---> (Correlates Token /      (Fetches User History   (Controls Concurrency via     (Processes Request
@@ -80,11 +97,11 @@ The maximum number of concurrent users you expect to support [ ? ]
 [5] [https://apidog.com](https://apidog.com/blog/how-to-use-gemma-4-12b-for-free/)
 
 
-
-## Technical Requirements Document (TRD) & Engineering Tasks
-System Components: Go Application (Backend) $\rightarrow$ LM Studio REST API $\rightarrow$ Gemma 4 LLM (Local/Private Server)
-Objective: Implement a stateless, concurrency-safe, multi-user LLM pipeline utilizing external session management and context-window optimization.
 ------------------------------
+
+# Technical Requirements Document (TRD) & Engineering Tasks
+
+
 ## 1. Architectural Overview & System Flow
 To ensure multi-user isolation and prevent GPU memory exhaustion (KV Cache overflow), the system must shift LLM state management from LM Studio to the Go backend database.
 
